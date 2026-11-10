@@ -1,0 +1,744 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Schengen 90/180 Counter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: two-column board — entries on the left, the rolling-window reading on the right; stacks on phones. */
+:root {
+  --bg: #F3F5F9;
+  --surface: #FFFFFF;
+  --surface-2: #EEF1F6;
+  --fg: #141B26;
+  --muted: #5C6879;
+  --line: #D8DEE7;
+  --accent: #1F4FD8;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #E4EAFB;
+  --good: #1B8A57;
+  --good-soft: #DDF3E7;
+  --warn: #B3730A;
+  --warn-soft: #FBF0D6;
+  --crit: #C7352E;
+  --crit-soft: #FBE1DF;
+  --cell-off: #E1E6EE;
+  --shadow: 0 1px 2px rgba(20,27,38,.06), 0 8px 24px -12px rgba(20,27,38,.18);
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E131B; --surface: #161D28; --surface-2: #1D2634; --fg: #E7ECF3; --muted: #98A4B6; --line: #2A3445;
+    --accent: #7097FF; --accent-ink: #0B1324; --accent-soft: #1C2A4A;
+    --good: #4FC78D; --good-soft: #15352A; --warn: #E6A63C; --warn-soft: #3A2D12; --crit: #F26C64; --crit-soft: #44201E;
+    --cell-off: #242E3D; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E131B; --surface: #161D28; --surface-2: #1D2634; --fg: #E7ECF3; --muted: #98A4B6; --line: #2A3445;
+  --accent: #7097FF; --accent-ink: #0B1324; --accent-soft: #1C2A4A;
+  --good: #4FC78D; --good-soft: #15352A; --warn: #E6A63C; --warn-soft: #3A2D12; --crit: #F26C64; --crit-soft: #44201E;
+  --cell-off: #242E3D; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 14px/1.5 var(--font-body);
+  padding-block: 28px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 20px; }
+h1, h2, h3 { font-family: var(--font-display); margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h1 { font-size: clamp(26px, 4vw, 34px); font-weight: 700; line-height: 1.1; }
+h2 { font-size: 17px; font-weight: 700; }
+h3 { font-size: 14px; font-weight: 700; }
+p { margin: 0; }
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+header.top { display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: flex-end; justify-content: space-between; }
+header.top .lede { max-width: 58ch; color: var(--muted); margin-top: 6px; }
+.refdate { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.refdate label { font-size: 12px; font-weight: 600; color: var(--muted); }
+
+/* Counting method switch */
+.modebar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; box-shadow: var(--shadow); }
+.modebar .eyebrow { margin-right: 4px; }
+.seg { display: inline-flex; background: var(--surface-2); border-radius: 8px; padding: 3px; gap: 2px; }
+.seg label { position: relative; cursor: pointer; }
+.seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg span { display: inline-block; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.seg input:checked + span { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
+.modebar .hint { font-size: 12px; color: var(--muted); flex: 1 1 320px; min-width: 0; }
+
+.board { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) { .board { grid-template-columns: 1fr; } .col-right { order: -1; } }
+.col { display: grid; gap: 20px; min-width: 0; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); min-width: 0; }
+.card > .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 16px 18px 0; flex-wrap: wrap; }
+.card > .card-body { padding: 14px 18px 18px; display: grid; gap: 14px; }
+
+/* Hero */
+.hero { display: grid; grid-template-columns: 1fr auto; gap: 16px 24px; align-items: end; }
+.hero .big { font-family: var(--font-display); font-size: clamp(48px, 9vw, 72px); font-weight: 700; line-height: .95; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.hero .big small { font-size: .38em; font-weight: 500; letter-spacing: 0; color: var(--muted); margin-left: 6px; }
+.hero .side { display: grid; gap: 10px; justify-items: end; text-align: right; }
+.hero .remaining { font-family: var(--font-display); font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.pill.good { background: var(--good-soft); color: var(--good); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.crit { background: var(--crit-soft); color: var(--crit); }
+.pill.neutral { background: var(--accent-soft); color: var(--accent); }
+.meter { position: relative; height: 10px; background: var(--cell-off); border-radius: 999px; overflow: visible; }
+.meter .fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .3s ease; max-width: 100%; }
+.meter .fill.good { background: var(--good); } .meter .fill.warn { background: var(--warn); } .meter .fill.crit { background: var(--crit); }
+.meter .ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 6px; font-family: var(--font-mono); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.fact { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; min-width: 0; }
+.fact .v { font-family: var(--font-display); font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.fact .k { font-size: 12px; color: var(--muted); }
+
+/* Alerts */
+.alert { border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; font-size: 13px; border: 1px solid transparent; }
+.alert.crit { background: var(--crit-soft); border-color: color-mix(in srgb, var(--crit) 35%, transparent); }
+.alert.crit strong { color: var(--crit); }
+.alert.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.alert.warn strong { color: var(--warn); }
+.alert.good { background: var(--good-soft); border-color: color-mix(in srgb, var(--good) 35%, transparent); }
+.alert.good strong { color: var(--good); }
+.alert.info { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+/* Timeline */
+.timeline { display: flex; flex-wrap: wrap; gap: 12px 10px; }
+.month { display: grid; gap: 5px; min-width: 0; }
+.month .days { display: grid; gap: 1px; height: 28px; }
+.month .label { font-size: 11px; color: var(--muted); font-family: var(--font-mono); white-space: nowrap; }
+.day { background: var(--cell-off); border-radius: 2px; position: relative; cursor: default; min-width: 0; }
+.day.in { background: var(--accent); }
+.day.over { background: var(--crit); }
+.day.planned { background: repeating-linear-gradient(135deg, var(--accent) 0 2px, var(--accent-soft) 2px 4px); }
+.day.today { outline: 2px solid var(--fg); outline-offset: 1px; z-index: 1; }
+.day.future { opacity: .55; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; background: var(--cell-off); }
+.legend i.in { background: var(--accent); } .legend i.over { background: var(--crit); }
+.legend i.planned { background: repeating-linear-gradient(135deg, var(--accent) 0 2px, var(--accent-soft) 2px 4px); }
+.legend i.today { outline: 2px solid var(--fg); outline-offset: 1px; }
+.tip { position: fixed; z-index: 20; pointer-events: none; background: var(--fg); color: var(--bg); padding: 6px 9px; border-radius: 6px; font-size: 12px; line-height: 1.4; box-shadow: var(--shadow); max-width: 240px; }
+.tip b { font-family: var(--font-mono); font-weight: 500; }
+
+/* Form */
+.form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.form .full { grid-column: 1 / -1; }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field label { font-size: 12px; font-weight: 600; color: var(--muted); }
+input[type="date"], input[type="text"], input[type="number"] {
+  font: 14px var(--font-body); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; min-width: 0;
+}
+input[type="date"] { font-family: var(--font-mono); font-size: 13px; }
+input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input:disabled { opacity: .5; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13px; padding-top: 4px; }
+.check input { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+button { font: 600 13px var(--font-body); border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: 8px 14px; cursor: pointer; }
+button:hover { background: var(--surface-2); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.primary:hover { filter: brightness(1.08); }
+button.ghost { border-color: transparent; background: transparent; color: var(--muted); padding: 6px 8px; }
+button.ghost:hover { background: var(--surface-2); color: var(--fg); }
+button.danger { color: var(--crit); }
+.err { color: var(--crit); font-size: 12px; min-height: 1em; }
+
+/* Trip list */
+.trips { display: grid; gap: 8px; }
+.trip { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.trip .stamp { font-family: var(--font-mono); font-size: 13px; display: grid; line-height: 1.35; }
+.trip .stamp .arrow { color: var(--muted); }
+.trip .meta { display: grid; gap: 2px; min-width: 0; }
+.trip .meta .note { font-weight: 600; overflow-wrap: anywhere; }
+.trip .meta .sub { font-size: 12px; color: var(--muted); }
+.trip .ops { display: flex; gap: 2px; }
+.trip.editing { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); margin-left: 6px; vertical-align: 1px; }
+.tag.planned { background: var(--surface-2); color: var(--muted); }
+.empty { text-align: center; color: var(--muted); padding: 18px; border: 1px dashed var(--line); border-radius: 8px; }
+.example-banner { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+
+/* Planner */
+.planner { display: grid; gap: 14px; }
+.plan-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px; align-items: end; }
+@media (max-width: 520px) { .plan-row { grid-template-columns: 1fr; } .form { grid-template-columns: 1fr; } .hero { grid-template-columns: 1fr; } .hero .side { justify-items: start; text-align: left; } }
+.result { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.result .v { font-family: var(--font-display); font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+details { border-top: 1px solid var(--line); padding-top: 12px; }
+details summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+details .rules { display: grid; gap: 10px; margin-top: 10px; font-size: 13px; max-width: 70ch; }
+.countries { display: flex; flex-wrap: wrap; gap: 6px; }
+.countries span { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); }
+textarea { font: 12px var(--font-mono); width: 100%; min-height: 70px; border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--surface); color: var(--fg); resize: vertical; }
+footer { font-size: 12px; color: var(--muted); max-width: 70ch; }
+.sr { position: absolute; left: -9999px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="eyebrow">Visa-free short stay · citizens of North Macedonia</p>
+      <h1>Schengen 90/180 Counter</h1>
+      <p class="lede">Log every entry and exit. The counter looks back 180 days from any date and tells you how many of your 90 days are used, how many are left, and when you can come back.</p>
+    </div>
+    <div class="refdate">
+      <label for="ref">Count as of</label>
+      <input type="date" id="ref">
+      <button type="button" id="refToday" class="ghost">Today</button>
+    </div>
+  </header>
+
+  <div class="modebar" role="group" aria-labelledby="modeLabel">
+    <span class="eyebrow" id="modeLabel">Counting method</span>
+    <div class="seg">
+      <label><input type="radio" name="mode" value="rolling" id="modeRolling" checked><span>Rolling 180 days</span></label>
+      <label><input type="radio" name="mode" value="fixed" id="modeFixed"><span>Fixed periods from first entry</span></label>
+    </div>
+    <span class="hint" id="modeHint"></span>
+  </div>
+
+  <div id="exampleBanner" class="alert info example-banner" hidden>
+    <span><strong>Example trips are loaded.</strong> Replace them with your own — your entries are saved in this browser.</span>
+    <button type="button" id="clearExamples">Clear examples</button>
+  </div>
+
+  <div class="board">
+    <div class="col col-left">
+      <section class="card" aria-labelledby="entriesTitle">
+        <div class="card-head">
+          <h2 id="entriesTitle">Entries &amp; exits</h2>
+          <span class="muted" id="tripCount"></span>
+        </div>
+        <div class="card-body">
+          <form id="tripForm" class="form" autocomplete="off">
+            <div class="field">
+              <label for="entry">Entry date</label>
+              <input type="date" id="entry" required>
+            </div>
+            <div class="field">
+              <label for="exit">Exit date</label>
+              <input type="date" id="exit">
+            </div>
+            <label class="check full"><input type="checkbox" id="ongoing"> I'm still in the Schengen area (no exit yet)</label>
+            <div class="field full">
+              <label for="note">Note <span class="muted" style="font-weight:400">(optional — city, reason)</span></label>
+              <input type="text" id="note" maxlength="60" placeholder="e.g. Berlin, work trip">
+            </div>
+            <div class="full err" id="formErr" aria-live="polite"></div>
+            <div class="full actions">
+              <button type="submit" class="primary" id="saveBtn">Add entry</button>
+              <button type="button" id="cancelEdit" class="ghost" hidden>Cancel</button>
+              <span class="muted" style="font-size:12px">Entry and exit days both count as days in Schengen.</span>
+            </div>
+          </form>
+          <div class="trips" id="trips"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-body">
+          <details>
+            <summary>How the rule is counted</summary>
+            <div class="rules">
+              <p>As a citizen of North Macedonia you can stay in the Schengen area without a visa for <strong>90 days in any 180-day period</strong>. The period is not a fixed half-year: for every single day of your stay, look back over the previous 180 days (that day plus the 179 before it) and count the days you were inside. That count must never exceed 90.</p>
+              <p>The "Fixed periods from first entry" option instead splits time into back-to-back 180-day blocks starting on your very first entry, each with its own 90 days. Many people find that easier to follow, but it is not how the rule is written: a stay that straddles two blocks can pass the fixed count and still fail the rolling one. The rolling count is always shown alongside so you can see both.</p>
+              <p>The day you enter and the day you leave both count as full days, even a late-night arrival or early-morning departure. Days between Schengen countries count once — this tracker merges overlapping or back-to-back trips automatically.</p>
+              <p>Days spent on a national long-stay visa or residence permit for a Schengen country are not counted against the 90 days. Since the EU Entry/Exit System started recording border crossings electronically, overstays are detected automatically, so keep your own log matching your passport stamps or EES record.</p>
+              <p>Schengen area countries:</p>
+              <div class="countries" id="countries"></div>
+              <p class="muted">Ireland is outside Schengen. Cyprus was still outside at the time this tool was written — check before counting days there. The rules above are simplified; the <a href="https://home-affairs.ec.europa.eu/policies/schengen/border-crossing_en" target="_blank" rel="noopener">European Commission's short-stay page</a> has the official calculator and details.</p>
+            </div>
+          </details>
+          <details style="margin-top:12px">
+            <summary>Backup &amp; restore</summary>
+            <div class="rules">
+              <p>Your entries live only in this browser. Copy a backup to keep them safe or move them to another device.</p>
+              <div class="actions">
+                <button type="button" id="copyBackup">Copy backup</button>
+                <span class="muted" id="copyMsg" style="font-size:12px"></span>
+              </div>
+              <label for="restoreBox" class="muted" style="font-size:12px;font-weight:600">Paste a backup here to restore</label>
+              <textarea id="restoreBox" placeholder='[{"entry":"2026-05-10","exit":"2026-06-02","note":"Berlin"}]'></textarea>
+              <div class="actions">
+                <button type="button" id="restoreBtn">Restore from backup</button>
+                <button type="button" id="clearAll" class="danger">Delete all entries</button>
+                <span class="muted" id="restoreMsg" style="font-size:12px"></span>
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
+    </div>
+
+    <div class="col col-right">
+      <section class="card" aria-labelledby="statusTitle">
+        <div class="card-head">
+          <h2 id="statusTitle">Your 180-day window</h2>
+          <span class="muted mono" id="windowRange"></span>
+        </div>
+        <div class="card-body">
+          <div class="hero">
+            <div class="big"><span id="usedNum">0</span><small>of 90 days used</small></div>
+            <div class="side">
+              <span class="pill neutral" id="statusPill">—</span>
+              <div class="remaining" id="remainingTxt"></div>
+            </div>
+          </div>
+          <div>
+            <div class="meter" role="img" aria-label="Days used out of 90"><div class="fill" id="meterFill" style="width:0%"></div></div>
+            <div class="ticks"><span>0</span><span>30</span><span>60</span><span>90</span></div>
+          </div>
+          <div id="alerts" style="display:grid;gap:8px"></div>
+          <div class="facts" id="facts"></div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="tlTitle">
+        <div class="card-head">
+          <h2 id="tlTitle">Day by day</h2>
+          <span class="muted" style="font-size:12px">Hover a day for its rolling count</span>
+        </div>
+        <div class="card-body">
+          <div class="timeline" id="timeline"></div>
+          <div class="legend">
+            <span><i class="in"></i> In Schengen</span>
+            <span><i></i> Outside</span>
+            <span><i class="planned"></i> Planned</span>
+            <span><i class="over"></i> Over the limit</span>
+            <span><i class="today"></i> Count date</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="planTitle">
+        <div class="card-head">
+          <h2 id="planTitle">Plan the next trip</h2>
+        </div>
+        <div class="card-body planner">
+          <div class="plan-row">
+            <div class="field">
+              <label for="planEntry">If I enter on</label>
+              <input type="date" id="planEntry">
+            </div>
+            <div class="result" id="planMaxResult"></div>
+          </div>
+          <div class="plan-row">
+            <div class="field">
+              <label for="planDays">I want to stay (days)</label>
+              <input type="number" id="planDays" min="1" max="90" value="14">
+            </div>
+            <div class="result" id="planWhenResult"></div>
+          </div>
+          <p class="muted" style="font-size:12px">The planner assumes you are outside Schengen between the count date and the planned entry, apart from trips already in your list.</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <footer>This tool is a personal aid, not legal advice. Border authorities make the final decision — keep your passport stamps and check the official calculator before a trip that runs close to the limit.</footer>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script>
+(function () {
+  'use strict';
+  const DAY = 86400000, LIMIT = 90, WINDOW = 180;
+  const STORE = 'schengen-counter-v1';
+  const $ = id => document.getElementById(id);
+
+  // ---------- date helpers (whole days as integers, UTC) ----------
+  const toDay = iso => { const [y, m, d] = iso.split('-').map(Number); return Math.round(Date.UTC(y, m - 1, d) / DAY); };
+  const fromDay = n => new Date(n * DAY);
+  const iso = n => fromDay(n).toISOString().slice(0, 10);
+  const fmt = n => fromDay(n).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  const fmtShort = n => fromDay(n).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const todayDay = () => { const t = new Date(); return Math.round(Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()) / DAY); };
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+
+  // ---------- state ----------
+  let trips = [];
+  let isExample = false;
+  let editingId = null;
+  let ref = todayDay();
+  let mode = 'rolling'; // 'rolling' (official) or 'fixed' (180-day blocks from the first entry)
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORE);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (Array.isArray(data.trips)) { trips = data.trips.filter(validTrip); isExample = !!data.example; mode = data.mode === 'fixed' ? 'fixed' : 'rolling'; return; }
+      }
+    } catch (e) { /* storage unavailable; fall through to examples */ }
+    seedExamples();
+  }
+  function save() {
+    try { localStorage.setItem(STORE, JSON.stringify({ trips, example: isExample, mode })); } catch (e) { /* ignore */ }
+  }
+  function validTrip(t) {
+    return t && typeof t.entry === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.entry) &&
+      (t.exit == null || (/^\d{4}-\d{2}-\d{2}$/.test(t.exit) && toDay(t.exit) >= toDay(t.entry)));
+  }
+  function seedExamples() {
+    const t = todayDay();
+    trips = [
+      { id: 'ex1', entry: iso(t - 183), exit: iso(t - 160), note: 'Vienna, spring visit' },
+      { id: 'ex2', entry: iso(t - 118), exit: iso(t - 81), note: 'Summer in Italy' },
+      { id: 'ex3', entry: iso(t - 39), exit: iso(t - 22), note: 'Berlin, work' },
+    ];
+    isExample = true;
+  }
+
+  // ---------- core calculation ----------
+  function compute(trips, ref, mode) {
+    const fixed = mode === 'fixed';
+    const spans = trips.map(t => {
+      const s = toDay(t.entry);
+      const e = t.exit ? toDay(t.exit) : Math.max(ref, s);
+      return { t, s, e, ongoing: !t.exit, planned: s > ref };
+    }).sort((a, b) => a.s - b.s);
+    const lo = Math.min(ref, ...spans.map(x => x.s)) - 400;
+    const hi = Math.max(ref, ...spans.map(x => x.e)) + 1200;
+    const present = new Uint8Array(hi - lo + 1);
+    for (const x of spans) for (let d = x.s; d <= x.e; d++) present[d - lo] = 1;
+    const prefix = new Int32Array(hi - lo + 2);
+    for (let i = 0; i < present.length; i++) prefix[i + 1] = prefix[i] + present[i];
+    const cnt = (a, b) => { a = Math.max(a, lo); b = Math.min(b, hi); return b < a ? 0 : prefix[b - lo + 1] - prefix[a - lo]; };
+    const has = d => d >= lo && d <= hi && present[d - lo] === 1;
+    // Rolling: the period for day d is the 180 days ending on d.
+    // Fixed: periods are consecutive 180-day blocks starting on the first entry day.
+    const firstDay = spans.length ? spans[0].s : ref;
+    const blockStartOf = d => fixed ? firstDay + Math.floor((d - firstDay) / WINDOW) * WINDOW : d - (WINDOW - 1);
+    const usedOn = d => cnt(blockStartOf(d), d);
+    const rollingOn = d => cnt(d - (WINDOW - 1), d);
+    const winStart = blockStartOf(ref), winEnd = winStart + WINDOW - 1;
+    const periodIndex = fixed ? Math.floor((ref - firstDay) / WINDOW) + 1 : null;
+
+    // Longest consecutive stay starting on day E, given everything already logged.
+    function maxStayFrom(E) {
+      let n = 0;
+      for (let d = E; d < E + WINDOW + 1; d++) {
+        const a = Math.max(E, blockStartOf(d));
+        const c = usedOn(d) - cnt(a, d) + (d - a + 1);
+        if (c > LIMIT) break;
+        n = d - E + 1;
+        if (n >= LIMIT) break;
+      }
+      return n;
+    }
+    function earliestFor(nDays, from) {
+      for (let E = from; E < from + 800; E++) if (maxStayFrom(E) >= nDays) return E;
+      return null;
+    }
+
+    // Scan every logged day (past and planned) for days where the rolling count exceeds 90.
+    const violations = [];
+    if (spans.length) {
+      const first = spans[0].s, last = Math.max(...spans.map(x => x.e));
+      let cur = null;
+      for (let d = first; d <= last; d++) {
+        const u = usedOn(d);
+        if (u > LIMIT) {
+          if (!cur) { cur = { start: d, end: d, peak: u }; violations.push(cur); }
+          cur.end = d; cur.peak = Math.max(cur.peak, u);
+        } else cur = null;
+      }
+    }
+
+    const used = usedOn(ref);
+    const remaining = Math.max(0, LIMIT - used);
+    const ongoing = spans.find(x => x.ongoing && x.s <= ref) || null;
+    const inToday = has(ref);
+
+    // When days roll off: next day the count drops (if you stay out), and the day everything resets.
+    let nextFree = null, fullReset = null;
+    const pastOnly = (a, b) => cnt(a, Math.min(b, ref)); // ignore planned days for these two
+    const usedPast = pastOnly(ref - (WINDOW - 1), ref);
+    if (fixed) {
+      fullReset = winEnd + 1; // the next block starts with a fresh 90
+    } else if (usedPast > 0) {
+      for (let d = ref + 1; d <= ref + WINDOW; d++) {
+        const u = pastOnly(d - (WINDOW - 1), d);
+        if (nextFree === null && u < usedPast) nextFree = d;
+        if (u === 0) { fullReset = d; break; }
+      }
+    }
+
+    // If currently inside: how long can you still stay?
+    let leaveBy = null, extraDays = null;
+    if (inToday) {
+      extraDays = used > LIMIT ? 0 : maxStayFrom(ref + 1);
+      leaveBy = ref + extraDays;
+    }
+
+    const perTrip = spans.map(x => ({
+      ...x,
+      days: x.e - x.s + 1,
+      inWindow: cnt(Math.max(x.s, winStart), Math.min(x.e, ref, winEnd)),
+    }));
+
+    return { fixed, spans: perTrip, used, remaining, rollingUsed: rollingOn(ref), violations, ongoing, inToday, nextFree, fullReset, leaveBy, extraDays, winStart, winEnd, periodIndex, firstDay, has, usedOn, maxStayFrom, earliestFor };
+  }
+
+  // ---------- rendering ----------
+  const el = {
+    ref: $('ref'), trips: $('trips'), tripCount: $('tripCount'), usedNum: $('usedNum'), statusPill: $('statusPill'), remainingTxt: $('remainingTxt'),
+    meterFill: $('meterFill'), alerts: $('alerts'), facts: $('facts'), timeline: $('timeline'), windowRange: $('windowRange'),
+    planEntry: $('planEntry'), planDays: $('planDays'), planMax: $('planMaxResult'), planWhen: $('planWhenResult'),
+    form: $('tripForm'), entry: $('entry'), exit: $('exit'), ongoing: $('ongoing'), note: $('note'), err: $('formErr'), saveBtn: $('saveBtn'), cancel: $('cancelEdit'),
+    banner: $('exampleBanner'), tip: $('tip'), modeHint: $('modeHint'), statusTitle: $('statusTitle'),
+  };
+  let result = null;
+
+  function statusClass(r) {
+    if (r.used > LIMIT) return 'crit';
+    if (r.remaining === 0) return 'crit';
+    if (r.remaining < 10) return 'crit';
+    if (r.remaining < 30) return 'warn';
+    return 'good';
+  }
+
+  function render() {
+    result = compute(trips, ref, mode);
+    const r = result;
+    el.ref.value = iso(ref);
+    $('modeRolling').checked = !r.fixed; $('modeFixed').checked = r.fixed;
+    el.modeHint.textContent = r.fixed
+      ? `180-day periods counted from your first entry (${fmt(r.firstDay)}), each with a fresh 90 days. Simpler to follow, but border officers use the rolling rule — the rolling count is shown too.`
+      : 'The official rule: for any day, count your days inside over that day and the 179 before it. Must never exceed 90.';
+    el.statusTitle.textContent = r.fixed ? 'Your current 180-day period' : 'Your 180-day window';
+    el.windowRange.textContent = r.fixed
+      ? `${r.periodIndex >= 1 ? 'Period ' + r.periodIndex : 'Before first entry'} · ${fmtShort(r.winStart)} – ${fmt(r.winEnd)}`
+      : `${fmtShort(r.winStart)} – ${fmt(r.winEnd)}`;
+    el.banner.hidden = !isExample;
+
+    // hero
+    el.usedNum.textContent = r.used;
+    const cls = statusClass(r);
+    el.meterFill.style.width = `${Math.min(100, (r.used / LIMIT) * 100)}%`;
+    el.meterFill.className = `fill ${cls}`;
+    el.statusPill.className = `pill ${cls}`;
+    el.statusPill.textContent = r.used > LIMIT ? 'Over the limit' : r.remaining === 0 ? 'Limit reached' : cls === 'crit' ? 'Almost used up' : cls === 'warn' ? 'Getting close' : 'Within the rule';
+    el.remainingTxt.textContent = r.used > LIMIT ? `${plural(r.used - LIMIT, 'day')} over` : `${plural(r.remaining, 'day')} left`;
+
+    // alerts
+    const alerts = [];
+    if (r.inToday) {
+      if (r.used > LIMIT) alerts.push(['crit', `You are over the limit by ${plural(r.used - LIMIT, 'day')} as of ${fmt(ref)}.`, 'Leave as soon as possible.']);
+      else if (r.extraDays === 0) alerts.push(['crit', `You must leave today (${fmt(ref)}).`, 'Staying one more day would exceed 90 days in the window.']);
+      else alerts.push([r.extraDays < 10 ? 'warn' : 'good', `You can stay ${plural(r.extraDays, 'more day')}. Leave by ${fmt(r.leaveBy)}.`, 'That is the last day you may be inside the Schengen area on this trip.']);
+    }
+    const pastV = r.violations.filter(v => v.start <= ref);
+    const futV = r.violations.filter(v => v.start > ref);
+    for (const v of pastV) alerts.push(['crit', `Overstay in your history: ${fmt(v.start)} – ${fmt(v.end)} (peak ${v.peak} days in 180).`, `${plural(v.end - v.start + 1, 'day')} over the limit.`]);
+    for (const v of futV) alerts.push(['warn', `A planned trip breaks the rule from ${fmt(v.start)}.`, `It would reach ${v.peak} days in 180 by ${fmt(v.end)}. Shorten or move it.`]);
+    if (!alerts.length && trips.length) alerts.push(['good', 'No overstays found in your history.', `Every logged day stays at or under 90 days in its 180-day ${r.fixed ? 'period' : 'window'}.`]);
+    if (!trips.length) alerts.push(['info', 'No entries yet.', 'Add your first entry and exit on the left.']);
+    if (r.fixed && trips.length) {
+      const over = r.rollingUsed > LIMIT;
+      alerts.push([over ? 'crit' : 'info', `Official rolling count: ${r.rollingUsed} of 90 days used${over ? ' — over the limit' : ''}.`, `Counted over the 180 days ending ${fmt(ref)}. Switch to "Rolling 180 days" for the full official view.`]);
+    }
+    el.alerts.innerHTML = alerts.map(([c, h, s]) => `<div class="alert ${c}"><strong>${h}</strong><span class="muted">${s}</span></div>`).join('');
+
+    // facts
+    const facts = [];
+    if (r.fixed) {
+      facts.push([fmt(r.winEnd), 'Current period ends']);
+      facts.push([fmt(r.fullReset), 'Next period, fresh 90 days']);
+    } else {
+      if (r.nextFree) facts.push([fmt(r.nextFree), 'Next day a used day rolls off']);
+      if (r.fullReset) facts.push([fmt(r.fullReset), 'All 90 days available again']);
+    }
+    const freshStart = r.earliestFor(LIMIT, r.inToday ? ref + 1 : ref);
+    if (!r.inToday && r.remaining < LIMIT && freshStart) facts.push([fmt(freshStart), 'Earliest entry for a full 90-day stay']);
+    const total = r.spans.filter(x => !x.planned).reduce((a, x) => a + x.days, 0);
+    facts.push([plural(total, 'day'), `Logged so far in ${plural(r.spans.filter(x => !x.planned).length, 'trip')}`]);
+    el.facts.innerHTML = facts.map(([v, k]) => `<div class="fact"><span class="v">${v}</span><span class="k">${k}</span></div>`).join('');
+
+    renderTrips(r);
+    renderTimeline(r);
+    renderPlanner(r);
+  }
+
+  function renderTrips(r) {
+    el.tripCount.textContent = trips.length ? plural(trips.length, 'entry').replace('entrys', 'entries') : '';
+    if (!trips.length) { el.trips.innerHTML = '<div class="empty">No entries yet. Add your first trip above.</div>'; return; }
+    el.trips.innerHTML = r.spans.slice().reverse().map(x => {
+      const t = x.t;
+      const tag = x.ongoing ? '<span class="tag">Still inside</span>' : x.planned ? '<span class="tag planned">Planned</span>' : '';
+      const sub = x.planned
+        ? `${plural(x.days, 'day')} planned`
+        : `${plural(x.days, 'day')}${x.ongoing ? ' so far' : ''} · ${x.inWindow} in current window`;
+      return `<div class="trip${t.id === editingId ? ' editing' : ''}" data-id="${t.id}">
+        <div class="stamp"><span>${fmtShort(x.s)} <span class="muted" style="font-size:11px">${fromDay(x.s).getUTCFullYear()}</span></span><span class="arrow">↳ ${x.ongoing ? 'no exit yet' : fmtShort(x.e) + ' <span class="muted" style="font-size:11px">' + fromDay(x.e).getUTCFullYear() + '</span>'}</span></div>
+        <div class="meta"><span class="note">${escapeHtml(t.note || (x.ongoing ? 'Current stay' : 'Trip'))}${tag}</span><span class="sub">${sub}</span></div>
+        <div class="ops"><button type="button" class="ghost" data-act="edit">Edit</button><button type="button" class="ghost danger" data-act="del">Delete</button></div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderTimeline(r) {
+    const start = r.winStart, end = r.winEnd;
+    const months = [];
+    for (let d = start; d <= end; d++) {
+      const dt = fromDay(d), key = dt.getUTCFullYear() * 12 + dt.getUTCMonth();
+      let m = months[months.length - 1];
+      if (!m || m.key !== key) { m = { key, label: dt.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' }), year: dt.getUTCFullYear(), days: [] }; months.push(m); }
+      m.days.push(d);
+    }
+    el.timeline.innerHTML = months.map(m => `<div class="month" style="flex:${m.days.length} 1 ${m.days.length * 4}px">
+      <div class="days" style="grid-template-columns:repeat(${m.days.length},1fr)">${m.days.map(d => {
+        const inS = r.has(d), over = inS && r.usedOn(d) > LIMIT, future = d > ref;
+        const c = ['day', inS ? (future ? 'planned' : 'in') : '', over ? 'over' : '', future ? 'future' : '', d === ref ? 'today' : ''].filter(Boolean).join(' ');
+        return `<div class="${c}" data-d="${d}"></div>`;
+      }).join('')}</div>
+      <div class="label">${m.label}${m.days[0] === start || fromDay(m.days[0]).getUTCMonth() === 0 ? ' ' + m.year : ''}</div>
+    </div>`).join('');
+  }
+
+  function renderPlanner(r) {
+    if (!el.planEntry.value || toDay(el.planEntry.value) <= ref && r.inToday) el.planEntry.value = iso(r.inToday ? (r.leaveBy || ref) + 1 : ref);
+    const E = toDay(el.planEntry.value);
+    const n = r.maxStayFrom(E);
+    const last = E + n - 1;
+    if (n === 0) {
+      el.planMax.innerHTML = `<span class="v" style="color:var(--crit)">0 days</span><br>You could not enter on ${fmt(E)} — the window is already full. ${r.earliestFor(1, E) ? 'First possible entry: <b class="mono">' + fmt(r.earliestFor(1, E)) + '</b>.' : ''}`;
+    } else {
+      el.planMax.innerHTML = `<span class="v">${plural(n, 'day')} max</span><br>Enter ${fmt(E)}, leave by <b class="mono">${fmt(last)}</b>${n === LIMIT ? ' (full allowance)' : ''}.`;
+    }
+    const want = Math.min(LIMIT, Math.max(1, parseInt(el.planDays.value, 10) || 1));
+    const from = r.inToday ? (r.leaveBy || ref) + 1 : ref;
+    const when = r.earliestFor(want, from);
+    if (when === null) el.planWhen.innerHTML = `<span class="v">—</span><br>No date found within the next two years.`;
+    else if (when === from && !r.inToday) el.planWhen.innerHTML = `<span class="v">Any time from today</span><br>A ${plural(want, 'day')} stay fits if you enter on ${fmt(when)}, leaving by <b class="mono">${fmt(when + want - 1)}</b>.`;
+    else el.planWhen.innerHTML = `<span class="v">${fmt(when)}</span><br>Earliest entry for a ${plural(want, 'day')} stay (leave by <b class="mono">${fmt(when + want - 1)}</b>).`;
+  }
+
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  // ---------- form ----------
+  function resetForm() {
+    editingId = null; el.form.reset(); el.exit.disabled = false; el.err.textContent = '';
+    el.saveBtn.textContent = 'Add entry'; el.cancel.hidden = true;
+    document.querySelectorAll('.trip.editing').forEach(x => x.classList.remove('editing'));
+  }
+  el.ongoing.addEventListener('change', () => { el.exit.disabled = el.ongoing.checked; if (el.ongoing.checked) el.exit.value = ''; });
+  el.form.addEventListener('submit', ev => {
+    ev.preventDefault();
+    el.err.textContent = '';
+    const entry = el.entry.value, exit = el.ongoing.checked ? null : el.exit.value;
+    if (!entry) { el.err.textContent = 'Pick an entry date.'; return; }
+    if (!el.ongoing.checked && !exit) { el.err.textContent = 'Pick an exit date, or tick "still in the Schengen area".'; return; }
+    if (exit && toDay(exit) < toDay(entry)) { el.err.textContent = 'The exit date is before the entry date.'; return; }
+    if (!exit && trips.some(t => !t.exit && t.id !== editingId)) { el.err.textContent = 'You already have an open stay without an exit date. Close it first.'; return; }
+    if (!exit && toDay(entry) > todayDay()) { el.err.textContent = 'An open stay cannot start in the future. Add an exit date to plan it.'; return; }
+    const note = el.note.value.trim();
+    if (isExample) { trips = []; isExample = false; }
+    if (editingId) {
+      const t = trips.find(t => t.id === editingId);
+      if (t) { t.entry = entry; t.exit = exit; t.note = note; }
+    } else trips.push({ id: 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), entry, exit, note });
+    save(); resetForm(); render();
+  });
+  el.cancel.addEventListener('click', resetForm);
+  el.trips.addEventListener('click', ev => {
+    const btn = ev.target.closest('button[data-act]'); if (!btn) return;
+    const id = btn.closest('.trip').dataset.id; const t = trips.find(t => t.id === id); if (!t) return;
+    if (btn.dataset.act === 'del') {
+      if (btn.dataset.confirm) { trips = trips.filter(x => x.id !== id); if (editingId === id) resetForm(); if (isExample && !trips.length) isExample = false; save(); render(); }
+      else { btn.dataset.confirm = '1'; btn.textContent = 'Confirm delete'; setTimeout(() => { if (btn.isConnected) { delete btn.dataset.confirm; btn.textContent = 'Delete'; } }, 3000); }
+      return;
+    }
+    editingId = id; el.entry.value = t.entry; el.ongoing.checked = !t.exit; el.exit.disabled = !t.exit; el.exit.value = t.exit || ''; el.note.value = t.note || '';
+    el.saveBtn.textContent = 'Save changes'; el.cancel.hidden = false;
+    document.querySelectorAll('.trip').forEach(x => x.classList.toggle('editing', x.dataset.id === id));
+    el.entry.focus();
+  });
+  $('clearExamples').addEventListener('click', () => { trips = []; isExample = false; save(); render(); });
+
+  // ---------- reference date & planner ----------
+  el.ref.addEventListener('change', () => { if (el.ref.value) { ref = toDay(el.ref.value); el.planEntry.value = ''; render(); } });
+  document.querySelectorAll('input[name="mode"]').forEach(inp => inp.addEventListener('change', () => { if (inp.checked) { mode = inp.value; save(); el.planEntry.value = ''; render(); } }));
+  $('refToday').addEventListener('click', () => { ref = todayDay(); el.planEntry.value = ''; render(); });
+  el.planEntry.addEventListener('change', () => { if (result) renderPlanner(result); });
+  el.planDays.addEventListener('input', () => { if (result) renderPlanner(result); });
+
+  // ---------- timeline tooltip ----------
+  function moveTip(ev) {
+    const x = Math.min(ev.clientX + 12, window.innerWidth - el.tip.offsetWidth - 8);
+    const y = ev.clientY + 16 + el.tip.offsetHeight > window.innerHeight ? ev.clientY - el.tip.offsetHeight - 10 : ev.clientY + 16;
+    el.tip.style.left = x + 'px'; el.tip.style.top = y + 'px';
+  }
+  el.timeline.addEventListener('mousemove', ev => {
+    const cell = ev.target.closest('.day'); if (!cell || !result) { el.tip.hidden = true; return; }
+    const d = +cell.dataset.d, u = result.usedOn(d);
+    el.tip.innerHTML = `<b>${fmt(d)}</b>${d > ref ? ' (ahead)' : ''}<br>${result.has(d) ? (d > ref ? 'Planned in Schengen' : 'In Schengen') : 'Outside Schengen'}<br>${result.fixed ? 'Used in this period by then' : 'Rolling count that day'}: <b>${u} / 90</b>${u > LIMIT ? ' — over' : ''}`;
+    el.tip.hidden = false; moveTip(ev);
+  });
+  el.timeline.addEventListener('mouseleave', () => { el.tip.hidden = true; });
+
+  // ---------- backup / restore ----------
+  $('copyBackup').addEventListener('click', async () => {
+    const text = JSON.stringify(trips.map(({ entry, exit, note }) => ({ entry, exit, note })), null, 0);
+    const msg = $('copyMsg');
+    try { await navigator.clipboard.writeText(text); msg.textContent = 'Copied.'; }
+    catch (e) { $('restoreBox').value = text; $('restoreBox').select(); msg.textContent = 'Copy the text from the box below.'; }
+    setTimeout(() => { msg.textContent = ''; }, 3000);
+  });
+  $('restoreBtn').addEventListener('click', () => {
+    const msg = $('restoreMsg');
+    try {
+      const data = JSON.parse($('restoreBox').value);
+      const list = Array.isArray(data) ? data : data.trips;
+      if (!Array.isArray(list) || !list.every(validTrip)) throw new Error();
+      trips = list.map((t, i) => ({ id: 'r' + Date.now().toString(36) + i, entry: t.entry, exit: t.exit || null, note: String(t.note || '').slice(0, 60) }));
+      isExample = false; save(); render(); msg.textContent = `Restored ${plural(trips.length, 'entry').replace('entrys', 'entries')}.`; $('restoreBox').value = '';
+    } catch (e) { msg.textContent = 'That is not a valid backup.'; }
+    setTimeout(() => { msg.textContent = ''; }, 4000);
+  });
+  const clearAllBtn = $('clearAll');
+  clearAllBtn.addEventListener('click', () => {
+    if (clearAllBtn.dataset.confirm) { trips = []; isExample = false; save(); resetForm(); render(); delete clearAllBtn.dataset.confirm; clearAllBtn.textContent = 'Delete all entries'; }
+    else { clearAllBtn.dataset.confirm = '1'; clearAllBtn.textContent = 'Click again to confirm'; setTimeout(() => { delete clearAllBtn.dataset.confirm; clearAllBtn.textContent = 'Delete all entries'; }, 3000); }
+  });
+
+  // ---------- countries ----------
+  $('countries').innerHTML = ['Austria', 'Belgium', 'Bulgaria', 'Croatia', 'Czechia', 'Denmark', 'Estonia', 'Finland', 'France', 'Germany', 'Greece', 'Hungary', 'Iceland', 'Italy', 'Latvia', 'Liechtenstein', 'Lithuania', 'Luxembourg', 'Malta', 'Netherlands', 'Norway', 'Poland', 'Portugal', 'Romania', 'Slovakia', 'Slovenia', 'Spain', 'Sweden', 'Switzerland'].map(c => `<span>${c}</span>`).join('');
+
+  // ---------- boot ----------
+  load();
+  el.entry.max = iso(todayDay() + 730); el.exit.max = iso(todayDay() + 730);
+  render();
+  window.__schengen = { compute, toDay, iso };
+})();
+</script>
+</body>
+</html>
